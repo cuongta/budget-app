@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Source for `yarn tauri icon src-tauri/app-icon.svg`, which generates src-tauri/icons/.
+       macOS icon grid: 824px rounded square centered on a 1024 canvas, transparent margin. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4c9bff"/>
+      <stop offset="1" stop-color="#1c56b8"/>
+    </linearGradient>
+    <linearGradient id="slice" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffb066"/>
+      <stop offset="1" stop-color="#f06a2e"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.16"/>
+      <stop offset="0.55" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#0b2a66" flood-opacity="0.35"/>
+    </filter>
+    <filter id="tile-shadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000000" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+
+  <!-- Tile -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)" filter="url(#tile-shadow)"/>
+  <!-- Soft top highlight, fading out by the middle -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#shine)"/>
+
+  <!-- Pie: 80% in white, the 20% slice pulled out in orange -->
+  <g filter="url(#shadow)">
+    <path d="M512,540 L740.26,465.84 A240,240 0 1 1 512,300 Z" fill="#ffffff"/>
+    <path d="M533.2,510.9 L533.2,270.9 A240,240 0 0 1 761.4,436.7 Z" fill="url(#slice)"/>
+  </g>
+</svg>

@@ -1,0 +1,118 @@
+name: Rust
+
+on:
+  # docs-only changes (README, screenshot, docs/) don't need a build
+  push:
+    branches: ["master"]
+    paths-ignore: ["**.md", "docs/**"]
+  pull_request:
+    branches: ["master"]
+    paths-ignore: ["**.md", "docs/**"]
+
+# One run at a time per branch/PR.
+# - PRs: a new push cancels the running build (only the latest commit matters).
+# - master: a running build/release always finishes; newer pushes wait, and only
+#   the newest waiting run is kept (older waiting runs are cancelled).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions: write-all
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Get version
+        id: get_version
+        # $GITHUB_OUTPUT — a special environment variable that GitHub Actions automatically sets
+        # for every step, pointing to a temporary file path (e.g. /tmp/some-random-file) unique
+        # to that job run. Anything written to this file in the correct format becomes that step's
+        # declared outputs.
+        run: |
+          VERSION=$(make version)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: version
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-latest]
+    timeout-minutes: 20 # first run compiles every dependency (sqlx, tokio) twice: tests + release
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Caches: reuse downloaded packages and compiled Rust dependencies between
+      # runs, so only our own code is rebuilt (the macOS runner bills at ~10x).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22 # same as local
+          cache: yarn # keyed on yarn.lock
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri # caches src-tauri/target, keyed on Cargo.lock + rustc version
+
+      - name: Install dependencies
+        run: yarn --frozen-lockfile
+
+      - name: Run tests
+        run: make test
+
+      - name: Set app version
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          SEMVER=${VERSION#v}
+          jq --arg v "$SEMVER" '.version = $v' src-tauri/tauri.conf.json > /tmp/tauri.conf.json
+          mv /tmp/tauri.conf.json src-tauri/tauri.conf.json
+          npm pkg set version="$SEMVER"
+
+      - name: Build release binary
+        id: build-release
+        if: success()
+        run: yarn tauri build
+
+      - name: Save artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }} # stores asset inside folder matrix.os (ie. "macos-latest")
+          path: src-tauri/target/release/bundle/dmg/*
+          retention-days: 1 # only the release job needs it; the Release keeps its own copy
+
+  release:
+    if: ${{ success() }}
+    needs: [version, build]
+    runs-on: [ubuntu-latest]
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create Github Release and Upload Assets to Github
+        id: create_gh_release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ needs.version.outputs.version }}
+          name: ${{ needs.version.outputs.version }}
+          body: |
+            Released ${{ needs.version.outputs.version }}
+          files: macos-latest/*.dmg

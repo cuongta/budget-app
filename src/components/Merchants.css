@@ -1,0 +1,25 @@
+/* Merchants page specifics; layout, headers and tables come from Page.css. */
+.merchants__filter {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  cursor: pointer;
+}
+
+.merchants__filter input {
+  padding: 0;
+}
+
+.merchants__key {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+.merchants__select {
+  min-width: 12rem;
+}
+
+.merchants__select optgroup {
+  font-weight: 600;
+}
