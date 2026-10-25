@@ -175,12 +175,14 @@ pub struct Merchant {
     /// 'user' or 'llm'; NULL while uncategorized.
     pub source: Option<String>,
     pub transaction_count: i64,
+    /// Sum of its transactions' amounts; money out is negative, 0 with none.
+    pub total: f64,
 }
 
 /// All merchants, most transactions first, so the ones worth categorizing come first.
 pub async fn list_merchants(pool: &SqlitePool) -> sqlx::Result<Vec<Merchant>> {
     sqlx::query_as(
-        "SELECT m.id, m.key, m.category_id, m.source, COUNT(t.id) AS transaction_count \
+        "SELECT m.id, m.key, m.category_id, m.source, COUNT(t.id) AS transaction_count, TOTAL(t.amount) AS total \
          FROM merchants m LEFT JOIN transactions t ON t.merchant_id = m.id \
          GROUP BY m.id ORDER BY transaction_count DESC, m.key",
     )
@@ -547,6 +549,7 @@ mod tests {
         let merchants = list_merchants(&pool).await.unwrap();
         assert_eq!(merchants.len(), 1);
         assert_eq!(merchants[0].transaction_count, 3);
+        assert_eq!(merchants[0].total, -60.0);
         let amazon = merchants[0].id;
         let by_amount = |ts: &[StoredTransaction], amount: f64| {
             ts.iter().find(|t| t.amount == amount).unwrap().category_id
@@ -766,7 +769,9 @@ mod tests {
         let summary = reset_data(&pool, false).await.unwrap();
         assert_eq!((summary.transactions, summary.merchants), (2, 0));
         assert!(list_transactions(&pool).await.unwrap().is_empty());
-        assert_eq!(list_merchants(&pool).await.unwrap().len(), 2);
+        let merchants = list_merchants(&pool).await.unwrap();
+        assert_eq!(merchants.len(), 2);
+        assert!(merchants.iter().all(|m| m.total == 0.0));
         // ...so a re-import is categorized again right away.
         insert_transactions(&pool, &rows).await.unwrap();
         let pg = list_transactions(&pool)
@@ -856,7 +861,7 @@ mod tests {
     #[tokio::test]
     async fn rename_category_keeps_names_unique() {
         let pool = memory_pool().await;
-        let pets = create_category(&pool, "Pets", CategoryType::Expense)
+        let pets = create_category(&pool, "Pet Supplies", CategoryType::Expense)
             .await
             .unwrap();
 
@@ -879,7 +884,7 @@ mod tests {
         ];
         insert_transactions(&pool, &rows).await.unwrap();
         let petco = list_merchants(&pool).await.unwrap()[0].id;
-        let pets = create_category(&pool, "Pets", CategoryType::Expense)
+        let pets = create_category(&pool, "Pet Supplies", CategoryType::Expense)
             .await
             .unwrap();
         set_merchant_category(&pool, petco, pets.id).await.unwrap();

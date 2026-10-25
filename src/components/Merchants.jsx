@@ -1,10 +1,20 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { KINDS, getCategories, getMerchants, setMerchantCategory } from "../lib/db";
+import {
+  KINDS,
+  getCategories,
+  getMerchants,
+  setMerchantCategory,
+} from "../lib/db";
 import { Page, Section, Status } from "./Page";
 import { SortHeader, sortRows } from "./Sort";
 import "./Merchants.css";
+
+const cents = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+});
 
 export const Merchants = () => {
   const queryClient = useQueryClient();
@@ -88,7 +98,12 @@ export const Merchants = () => {
           <table className="data-table">
             <thead>
               <tr>
-                <SortHeader columns={columns} column="merchant" sort={sort} onSort={setSort} />
+                <SortHeader
+                  columns={columns}
+                  column="merchant"
+                  sort={sort}
+                  onSort={setSort}
+                />
                 <SortHeader
                   columns={columns}
                   column="transactions"
@@ -96,7 +111,19 @@ export const Merchants = () => {
                   onSort={setSort}
                   className="num"
                 />
-                <SortHeader columns={columns} column="category" sort={sort} onSort={setSort} />
+                <SortHeader
+                  columns={columns}
+                  column="amount"
+                  sort={sort}
+                  onSort={setSort}
+                  className="num"
+                />
+                <SortHeader
+                  columns={columns}
+                  column="category"
+                  sort={sort}
+                  onSort={setSort}
+                />
               </tr>
             </thead>
             <tbody>
@@ -107,6 +134,7 @@ export const Merchants = () => {
                   <tr key={m.id}>
                     <td className="merchants__key">{m.key}</td>
                     <td className="num">{m.transaction_count}</td>
+                    <Amount value={m.total} />
                     <td>
                       <CategorySelect
                         categories={categories.data}
@@ -117,7 +145,10 @@ export const Merchants = () => {
                         }
                       />
                       {m.source === "llm" && (
-                        <span className="badge" title="Suggested by the local model">
+                        <span
+                          className="badge"
+                          title="Suggested by the local model"
+                        >
                           auto
                         </span>
                       )}
@@ -135,8 +166,9 @@ export const Merchants = () => {
 };
 
 // Sortable columns (see Sort.jsx). First click: names A–Z, most transactions first,
-// and categories A–Z with uncategorized merchants last. Category names come from
-// the categories list, since merchants only carry the category id.
+// largest amounts first, and categories A–Z with uncategorized merchants last.
+// Category names come from the categories list, since merchants only carry the
+// category id.
 const sortColumns = (categories) => {
   const names = new Map(categories.map((c) => [c.id, c.name]));
   return {
@@ -146,13 +178,35 @@ const sortColumns = (categories) => {
       first: "desc",
       compare: (a, b) => a.transaction_count - b.transaction_count,
     },
+    // Biggest first either way: a large refund or paycheck ranks with large spending.
+    amount: {
+      label: "Amount",
+      first: "desc",
+      compare: (a, b) => Math.abs(a.total) - Math.abs(b.total),
+    },
     category: {
       label: "Category",
       first: "asc",
-      compare: (a, b) => (names.get(a.category_id) ?? "").localeCompare(names.get(b.category_id) ?? ""),
+      compare: (a, b) =>
+        (names.get(a.category_id) ?? "").localeCompare(
+          names.get(b.category_id) ?? "",
+        ),
       isEmpty: (m) => m.category_id == null,
     },
   };
+};
+
+// Net of all the merchant's transactions, as the bank records it: money out is
+// negative. Money in (paychecks, refunds) gets a "+" and the positive color;
+// money out stays in the normal text color so a page of spending isn't all red.
+const Amount = ({ value }) => {
+  const positive = Math.round(value * 100) > 0;
+  return (
+    <td className={`num${positive ? " merchants__positive" : ""}`}>
+      {positive ? "+" : ""}
+      {cents.format(value)}
+    </td>
+  );
 };
 
 // Merchant name A–Z; also orders rows that compare equal in the other columns.

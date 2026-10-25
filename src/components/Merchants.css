@@ -23,3 +23,7 @@
 .merchants__select optgroup {
   font-weight: 600;
 }
+
+.merchants__positive {
+  color: var(--color-positive);
+}

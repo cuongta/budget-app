@@ -1,11 +1,13 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
 
 import { getMonthlyCategoryTotals, getMonthTransactions } from "../lib/db";
+import { MoneyFlow } from "./MoneyFlow";
 import { PieChart, PieGrid, PieHeadline } from "./PieChart";
 import { SortHeader, sortRows } from "./Sort";
 import { Page, Section, Status } from "./Page";
+import { useWidth } from "../hooks/useWidth";
 import "./Monthly.css";
 
 // Same cache entry as Home; both live under ["transactions", ...] so imports and
@@ -18,7 +20,10 @@ const dollars = new Intl.NumberFormat("en-US", {
   currency: "USD",
   maximumFractionDigits: 0,
 });
-const cents = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+const cents = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+});
 const compact = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
@@ -32,7 +37,10 @@ const isSpending = (kind) => kind === "Expense" || kind === null;
 const isIncome = (kind) => kind === "Income";
 
 export const Monthly = () => {
-  const totals = useQuery({ queryKey: MONTHLY_KEY, queryFn: getMonthlyCategoryTotals });
+  const totals = useQuery({
+    queryKey: MONTHLY_KEY,
+    queryFn: getMonthlyCategoryTotals,
+  });
   const [selected, setSelected] = useState(null);
   const [compareTo, setCompareTo] = useState("previous");
 
@@ -53,7 +61,9 @@ export const Monthly = () => {
   const summary = summarizeByMonth(totals.data);
   const months = summary.map((s) => s.month);
   // Default to the latest month; also recover if the selected month disappeared.
-  const month = months.includes(selected) ? selected : months[months.length - 1];
+  const month = months.includes(selected)
+    ? selected
+    : months[months.length - 1];
   const current = summary.find((s) => s.month === month);
   const index = months.indexOf(month);
 
@@ -71,7 +81,11 @@ export const Monthly = () => {
           >
             ‹
           </button>
-          <select value={month} onChange={(e) => setSelected(e.target.value)} aria-label="Month">
+          <select
+            value={month}
+            onChange={(e) => setSelected(e.target.value)}
+            aria-label="Month"
+          >
             {months.map((m) => (
               <option key={m} value={m}>
                 {formatMonth(m, "long")}
@@ -93,8 +107,15 @@ export const Monthly = () => {
         title="Income, spending & investments"
         hint="Click a month to select it. Hover for exact amounts."
       >
-        <IncomeSpendingChart data={summary} selected={month} onSelect={setSelected} />
-        <dl className="monthly__totals" aria-label={`Totals for ${formatMonth(month, "long")}`}>
+        <IncomeSpendingChart
+          data={summary}
+          selected={month}
+          onSelect={setSelected}
+        />
+        <dl
+          className="monthly__totals"
+          aria-label={`Totals for ${formatMonth(month, "long")}`}
+        >
           <div>
             <dt>{formatMonth(month, "long")}</dt>
           </div>
@@ -112,14 +133,25 @@ export const Monthly = () => {
           </div>
           <div>
             <dt>Net</dt>
-            <dd className={signClass(current.net)}>{formatSigned(current.net)}</dd>
+            <dd className={signClass(current.net)}>
+              {formatSigned(current.net)}
+            </dd>
           </div>
         </dl>
       </Section>
 
+      <Section
+        title="Income and expenses"
+        hint={`Where ${formatMonth(month, "long")}'s income went. Hover a category to highlight its flow.`}
+      >
+        <MoneyFlow rows={totals.data.filter((r) => r.month === month)} />
+      </Section>
+
       <Section title="Spending compared">
         <div className="compare__controls">
-          <span className="compare__controls-label">Compare {formatMonth(month, "long")} with</span>
+          <span className="compare__controls-label">
+            Compare {formatMonth(month, "long")} with
+          </span>
           <ToggleGroup
             label="Compare with"
             options={COMPARE_OPTIONS}
@@ -169,9 +201,16 @@ const COMPARE_OPTIONS = [
 const baselineFor = (compareTo, months, index) => {
   if (compareTo === "previous") {
     const m = months[index - 1];
-    return { baselineMonths: [m], short: formatMonth(m, "short"), long: formatMonth(m, "long") };
+    return {
+      baselineMonths: [m],
+      short: formatMonth(m, "short"),
+      long: formatMonth(m, "long"),
+    };
   }
-  const earlier = compareTo === "avg3" ? months.slice(Math.max(0, index - 3), index) : months.slice(0, index);
+  const earlier =
+    compareTo === "avg3"
+      ? months.slice(Math.max(0, index - 3), index)
+      : months.slice(0, index);
   const n = earlier.length;
   const range =
     n === 1
@@ -190,8 +229,10 @@ const MonthComparison = ({ rows, month, baselineMonths, short, long }) => {
   const inBaseline = new Set(baselineMonths);
   const byCategory = new Map();
   for (const r of rows) {
-    if (!isSpending(r.kind) || (r.month !== month && !inBaseline.has(r.month))) continue;
-    if (!byCategory.has(r.category)) byCategory.set(r.category, { current: 0, previous: 0 });
+    if (!isSpending(r.kind) || (r.month !== month && !inBaseline.has(r.month)))
+      continue;
+    if (!byCategory.has(r.category))
+      byCategory.set(r.category, { current: 0, previous: 0 });
     const c = byCategory.get(r.category);
     // A month with no spending in a category counts as $0 in the average.
     if (r.month === month) c.current -= r.total;
@@ -201,47 +242,66 @@ const MonthComparison = ({ rows, month, baselineMonths, short, long }) => {
     .map(([category, v]) => ({ category, ...v }))
     // Biggest this month first; categories that only had spending last month go last.
     .sort((a, b) => b.current - a.current || b.previous - a.previous);
-  if (categories.length === 0) return <Status>No spending in either month.</Status>;
+  if (categories.length === 0)
+    return <Status>No spending in either month.</Status>;
 
   const total = categories.reduce(
-    (t, c) => ({ current: t.current + c.current, previous: t.previous + c.previous }),
+    (t, c) => ({
+      current: t.current + c.current,
+      previous: t.previous + c.previous,
+    }),
     { current: 0, previous: 0 },
   );
   // Category rows share one scale; the total row gets its own (it's much larger).
-  const max = Math.max(0, ...categories.flatMap((c) => [c.current, c.previous]));
+  const max = Math.max(
+    0,
+    ...categories.flatMap((c) => [c.current, c.previous]),
+  );
 
   return (
     <>
-    <p className="page__hint">
-      Each row: {long} (light dot) → {formatMonth(month, "long")} (solid dot).
-    </p>
-    <table className="data-table compare">
-      <thead>
-        <tr>
-          <th scope="col">Category</th>
-          <th scope="col" className="compare__track-col">
-            <span className="compare__legend">
-              <span className="compare__dot compare__dot--previous" /> {short}
-              <span className="compare__dot compare__dot--current" /> {formatMonth(month, "short")}
-            </span>
-          </th>
-          <th scope="col" className="num">{short}</th>
-          <th scope="col" className="num">{formatMonth(month, "short")}</th>
-          <th scope="col" className="num">Change</th>
-        </tr>
-      </thead>
-      <tbody>
-        <ComparisonRow
-          label="Total spending"
-          {...total}
-          max={Math.max(total.current, total.previous)}
-          strong
-        />
-        {categories.map((c) => (
-          <ComparisonRow key={c.category} label={c.category} {...c} max={max} />
-        ))}
-      </tbody>
-    </table>
+      <p className="page__hint">
+        Each row: {long} (light dot) → {formatMonth(month, "long")} (solid dot).
+      </p>
+      <table className="data-table compare">
+        <thead>
+          <tr>
+            <th scope="col">Category</th>
+            <th scope="col" className="compare__track-col">
+              <span className="compare__legend">
+                <span className="compare__dot compare__dot--previous" /> {short}
+                <span className="compare__dot compare__dot--current" />{" "}
+                {formatMonth(month, "short")}
+              </span>
+            </th>
+            <th scope="col" className="num">
+              {short}
+            </th>
+            <th scope="col" className="num">
+              {formatMonth(month, "short")}
+            </th>
+            <th scope="col" className="num">
+              Change
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <ComparisonRow
+            label="Total spending"
+            {...total}
+            max={Math.max(total.current, total.previous)}
+            strong
+          />
+          {categories.map((c) => (
+            <ComparisonRow
+              key={c.category}
+              label={c.category}
+              {...c}
+              max={max}
+            />
+          ))}
+        </tbody>
+      </table>
     </>
   );
 };
@@ -279,20 +339,35 @@ const ComparisonRow = ({ label, current, previous, max, strong }) => {
             className="compare__bar"
             style={{ left: `${lo}%`, width: `${hi - lo}%` }}
           />
-          <span className="compare__dot compare__dot--previous" style={{ left: `${at(previous)}%` }} />
-          <span className="compare__dot compare__dot--current" style={{ left: `${at(current)}%` }} />
+          <span
+            className="compare__dot compare__dot--previous"
+            style={{ left: `${at(previous)}%` }}
+          />
+          <span
+            className="compare__dot compare__dot--current"
+            style={{ left: `${at(current)}%` }}
+          />
         </div>
       </td>
       <td className="num compare__muted">{dollars.format(previous)}</td>
       <td className="num">{dollars.format(current)}</td>
       {/* Spending up is bad (red), down is good (green); the arrow and sign carry it too. */}
-      <td className={`num ${up ? "monthly__negative" : down ? "monthly__positive" : "compare__muted"}`}>
+      <td
+        className={`num ${up ? "monthly__negative" : down ? "monthly__positive" : "compare__muted"}`}
+      >
         {up || down ? (
           <>
             {up ? "▲ +" : "▼ "}
             {dollars.format(change)}
-            {previous > 0 && <span className="compare__pct"> ({percentChange.format(change / previous)})</span>}
-            {previous <= 0 && up && <span className="compare__pct"> (new)</span>}
+            {previous > 0 && (
+              <span className="compare__pct">
+                {" "}
+                ({percentChange.format(change / previous)})
+              </span>
+            )}
+            {previous <= 0 && up && (
+              <span className="compare__pct"> (new)</span>
+            )}
           </>
         ) : (
           "–"
@@ -306,17 +381,25 @@ const ComparisonRow = ({ label, current, previous, max, strong }) => {
 const summarizeByMonth = (rows) => {
   const byMonth = new Map();
   for (const r of rows) {
-    if (!byMonth.has(r.month)) byMonth.set(r.month, { month: r.month, income: 0, spending: 0, investment: 0 });
+    if (!byMonth.has(r.month))
+      byMonth.set(r.month, {
+        month: r.month,
+        income: 0,
+        spending: 0,
+        investment: 0,
+      });
     const s = byMonth.get(r.month);
     // The bank records money out as negative; all three are shown as positive amounts.
     if (isIncome(r.kind)) s.income += r.total;
     else if (isSpending(r.kind)) s.spending -= r.total;
     else if (r.kind === "Investment") s.investment -= r.total;
   }
-  return [...byMonth.values()]
-    .sort((a, b) => a.month.localeCompare(b.month))
-    // Net stays income − spending (as on Home); investments move money, they don't spend it.
-    .map((s) => ({ ...s, net: s.income - s.spending }));
+  return (
+    [...byMonth.values()]
+      .sort((a, b) => a.month.localeCompare(b.month))
+      // Net stays income − spending (as on Home); investments move money, they don't spend it.
+      .map((s) => ({ ...s, net: s.income - s.spending }))
+  );
 };
 
 // ---------------------------------------------------------------------------
@@ -341,13 +424,18 @@ const IncomeSpendingChart = ({ data, selected, onSelect }) => {
 
   const innerW = Math.max(0, width - MARGIN.left - MARGIN.right);
   const innerH = CHART_HEIGHT - MARGIN.top - MARGIN.bottom;
-  const { max, ticks } = niceScale(Math.max(...data.flatMap((d) => SERIES.map((s) => d[s.key]))));
+  const { max, ticks } = niceScale(
+    Math.max(...data.flatMap((d) => SERIES.map((s) => d[s.key]))),
+  );
   const y = (v) => MARGIN.top + innerH - (Math.max(0, v) / max) * innerH;
   const band = data.length > 0 ? innerW / data.length : 0;
   // A month's bars take up to ~80% of its band, leaving air between months.
   const barW = Math.max(
     2,
-    Math.min(BAR_MAX, (band - (SERIES.length - 1) * BAR_GAP) / (SERIES.length + 0.6)),
+    Math.min(
+      BAR_MAX,
+      (band - (SERIES.length - 1) * BAR_GAP) / (SERIES.length + 0.6),
+    ),
   );
   const groupW = SERIES.length * barW + (SERIES.length - 1) * BAR_GAP;
 
@@ -366,7 +454,12 @@ const IncomeSpendingChart = ({ data, selected, onSelect }) => {
       </ul>
 
       {width > 0 && (
-        <svg width={width} height={CHART_HEIGHT} role="img" aria-label="Income, spending and investments by month">
+        <svg
+          width={width}
+          height={CHART_HEIGHT}
+          role="img"
+          aria-label="Income, spending and investments by month"
+        >
           {/* Gridlines + y labels */}
           {ticks.map((t) => (
             <g key={t}>
@@ -377,7 +470,13 @@ const IncomeSpendingChart = ({ data, selected, onSelect }) => {
                 y1={y(t)}
                 y2={y(t)}
               />
-              <text className="monthly__axis" x={MARGIN.left - 8} y={y(t)} dy="0.32em" textAnchor="end">
+              <text
+                className="monthly__axis"
+                x={MARGIN.left - 8}
+                y={y(t)}
+                dy="0.32em"
+                textAnchor="end"
+              >
                 {compact.format(t)}
               </text>
             </g>
@@ -405,7 +504,13 @@ const IncomeSpendingChart = ({ data, selected, onSelect }) => {
                   // No value labels on the bars: three side by side would collide. The
                   // selected month's values are in the totals under the chart, and every
                   // month's are in the tooltip.
-                  return <path key={s.key} d={barPath(bx, y(value), barW, y(0))} fill={s.color} />;
+                  return (
+                    <path
+                      key={s.key}
+                      d={barPath(bx, y(value), barW, y(0))}
+                      fill={s.color}
+                    />
+                  );
                 })}
                 <text
                   className={`monthly__axis${isSelected ? " monthly__axis--selected" : ""}`}
@@ -452,17 +557,24 @@ const IncomeSpendingChart = ({ data, selected, onSelect }) => {
             top: MARGIN.top + 24,
           }}
         >
-          <div className="monthly__tooltip-title">{formatMonth(tip.month, "long")}</div>
+          <div className="monthly__tooltip-title">
+            {formatMonth(tip.month, "long")}
+          </div>
           {SERIES.map((s) => (
             <div key={s.key} className="monthly__tooltip-row">
-              <span className="monthly__tooltip-key" style={{ background: s.color }} />
+              <span
+                className="monthly__tooltip-key"
+                style={{ background: s.color }}
+              />
               <strong>{cents.format(tip[s.key])}</strong>
               <span>{s.label}</span>
             </div>
           ))}
           <div className="monthly__tooltip-row">
             <span className="monthly__tooltip-key monthly__tooltip-key--none" />
-            <strong className={signClass(tip.net)}>{formatSigned(tip.net, cents)}</strong>
+            <strong className={signClass(tip.net)}>
+              {formatSigned(tip.net, cents)}
+            </strong>
             <span>Net</span>
           </div>
         </div>
@@ -499,26 +611,15 @@ const niceScale = (rawMax) => {
   return { max, ticks };
 };
 
-/** [ref, width]: tracks the element's width so the SVG fills it. */
-const useWidth = () => {
-  const ref = useRef(null);
-  const [width, setWidth] = useState(0);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const observer = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width));
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-  return [ref, width];
-};
-
 // ---------------------------------------------------------------------------
 // Transactions for the selected month. Categories are read-only here: they come
 // from the merchant, which you change on the Merchants page.
 
 const MonthTransactions = ({ month, current }) => {
-  const transactions = useQuery({ queryKey: monthKey(month), queryFn: () => getMonthTransactions(month) });
+  const transactions = useQuery({
+    queryKey: monthKey(month),
+    queryFn: () => getMonthTransactions(month),
+  });
   // Kept when switching months. Default matches the backend order: newest first.
   const [sort, setSort] = useState({ column: "date", dir: "desc" });
 
@@ -566,33 +667,59 @@ const MonthTransactions = ({ month, current }) => {
           </span>
         }
       >
-      <table className="data-table">
-        <thead>
-          <tr>
-            <SortHeader columns={SORT_COLUMNS} column="date" sort={sort} onSort={setSort} />
-            <th scope="col">Description</th>
-            <SortHeader columns={SORT_COLUMNS} column="amount" sort={sort} onSort={setSort} className="num" />
-            <SortHeader columns={SORT_COLUMNS} column="category" sort={sort} onSort={setSort} />
-          </tr>
-        </thead>
-        <tbody>
-          {sortRows(transactions.data, SORT_COLUMNS, sort, newestFirst).map((t) => (
-            <tr key={t.id}>
-              <td className="monthly__date">{formatDay(t.date)}</td>
-              <td className="monthly__desc">
-                <div className="monthly__merchant">{t.merchant ?? t.description}</div>
-                <div className="monthly__raw" title={t.description}>
-                  {t.description}
-                </div>
-              </td>
-              <td className={`num ${signClass(t.amount)}`}>{formatSigned(t.amount, cents)}</td>
-              <td className="monthly__category">
-                {t.category ?? <span className="monthly__uncategorized">Uncategorized</span>}
-              </td>
+        <table className="data-table">
+          <thead>
+            <tr>
+              <SortHeader
+                columns={SORT_COLUMNS}
+                column="date"
+                sort={sort}
+                onSort={setSort}
+              />
+              <th scope="col">Description</th>
+              <SortHeader
+                columns={SORT_COLUMNS}
+                column="amount"
+                sort={sort}
+                onSort={setSort}
+                className="num"
+              />
+              <SortHeader
+                columns={SORT_COLUMNS}
+                column="category"
+                sort={sort}
+                onSort={setSort}
+              />
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {sortRows(transactions.data, SORT_COLUMNS, sort, newestFirst).map(
+              (t) => (
+                <tr key={t.id}>
+                  <td className="monthly__date">{formatDay(t.date)}</td>
+                  <td className="monthly__desc">
+                    <div className="monthly__merchant">
+                      {t.merchant ?? t.description}
+                    </div>
+                    <div className="monthly__raw" title={t.description}>
+                      {t.description}
+                    </div>
+                  </td>
+                  <td className={`num ${signClass(t.amount)}`}>
+                    {formatSigned(t.amount, cents)}
+                  </td>
+                  <td className="monthly__category">
+                    {t.category ?? (
+                      <span className="monthly__uncategorized">
+                        Uncategorized
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ),
+            )}
+          </tbody>
+        </table>
       </Section>
     </>
   );
@@ -601,8 +728,16 @@ const MonthTransactions = ({ month, current }) => {
 // Sortable columns (see Sort.jsx). First click: newest dates, biggest money-out
 // (most negative amount), and categories A–Z with uncategorized last.
 const SORT_COLUMNS = {
-  date: { label: "Date", first: "desc", compare: (a, b) => a.date.localeCompare(b.date) },
-  amount: { label: "Amount", first: "asc", compare: (a, b) => a.amount - b.amount },
+  date: {
+    label: "Date",
+    first: "desc",
+    compare: (a, b) => a.date.localeCompare(b.date),
+  },
+  amount: {
+    label: "Amount",
+    first: "asc",
+    compare: (a, b) => a.amount - b.amount,
+  },
   category: {
     label: "Category",
     first: "asc",
@@ -625,8 +760,16 @@ const IncomePie = ({ month, income, spending, investment }) => {
   const overspent = Math.round(leftOver) < 0;
   const slices = [
     { label: "Spending", color: "var(--color-spending)", value: spending },
-    { label: "Investments", color: "var(--color-investment)", value: investment },
-    ...(overspent ? [] : [{ label: "Left over", color: "var(--color-income)", value: leftOver }]),
+    {
+      label: "Investments",
+      color: "var(--color-investment)",
+      value: investment,
+    },
+    ...(overspent
+      ? []
+      : [
+          { label: "Left over", color: "var(--color-income)", value: leftOver },
+        ]),
   ].filter((s) => s.value > 0);
 
   return (
@@ -642,14 +785,20 @@ const IncomePie = ({ month, income, spending, investment }) => {
         <PieHeadline
           label="Left over"
           value={dollars.format(leftOver)}
-          valueClass={Math.round(leftOver) > 0 ? "monthly__positive" : undefined}
+          valueClass={
+            Math.round(leftOver) > 0 ? "monthly__positive" : undefined
+          }
           note={`of ${dollars.format(income)} earned`}
         />
       )}
       {slices.length > 0 ? (
         <PieChart
           slices={slices}
-          caption={overspent ? `${formatMonth(month, "long")} · money out` : formatMonth(month, "long")}
+          caption={
+            overspent
+              ? `${formatMonth(month, "long")} · money out`
+              : formatMonth(month, "long")
+          }
           label={overspent ? "Money out" : "Where the income went"}
           showTotal={false}
         />
@@ -724,7 +873,8 @@ const signClass = (v) => {
   return s > 0 ? "monthly__positive" : s < 0 ? "monthly__negative" : "";
 };
 
-const formatSigned = (v, format = dollars) => (Math.round(v) > 0 ? "+" : "") + format.format(v);
+const formatSigned = (v, format = dollars) =>
+  (Math.round(v) > 0 ? "+" : "") + format.format(v);
 
 // "2026-09" -> "Sep" / "September 2026"
 const formatMonth = (month, style) => {
@@ -738,5 +888,8 @@ const formatMonth = (month, style) => {
 // "2026-09-05" -> "Sep 5"
 const formatDay = (date) => {
   const [year, m, d] = date.split("-").map(Number);
-  return new Date(year, m - 1, d).toLocaleString("en-US", { month: "short", day: "numeric" });
+  return new Date(year, m - 1, d).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
 };

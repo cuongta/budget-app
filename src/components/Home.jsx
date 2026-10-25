@@ -3,6 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { Link } from "react-router";
 
 import { getMonthlyCategoryTotals, getUncategorizedMerchantCount, importCsv } from "../lib/db";
+import { MoneyFlow } from "./MoneyFlow";
 import { PieChart, PieGrid, PieHeadline } from "./PieChart";
 import { Page, Status } from "./Page";
 import "./Home.css";
@@ -204,6 +205,14 @@ const MonthlyTables = ({ rows }) => {
           />
         </section>
       </PieGrid>
+
+      <section className="page__section">
+        <h2 className="page__section-title">Income and expenses</h2>
+        <p className="page__hint">
+          Where your income went, {period}. Hover a category to highlight its flow.
+        </p>
+        <MoneyFlow rows={inRange} />
+      </section>
 
       <CategoryHeatTable
         title="Spending by category"
