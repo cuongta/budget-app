@@ -17,3 +17,10 @@
 .settings__check input {
   padding: 0;
 }
+
+.settings__version {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+}

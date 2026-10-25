@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { getVersion } from "@tauri-apps/api/app";
 import { ask } from "@tauri-apps/plugin-dialog";
 
 import { resetData } from "../lib/db";
@@ -62,6 +63,25 @@ export const Settings = () => {
           </Status>
         )}
       </Section>
+
+      <Section title="About">
+        <AppVersion />
+      </Section>
     </Page>
+  );
+};
+
+// The `version` in tauri.conf.json, which CI sets from the release tag; local
+// builds show the version committed there.
+const AppVersion = () => {
+  const version = useQuery({
+    queryKey: ["app-version"],
+    queryFn: getVersion,
+    staleTime: Infinity, // can't change while the app is running
+  });
+  return (
+    <p className="settings__version">
+      Version {version.data ?? "…"}
+    </p>
   );
 };
