@@ -180,6 +180,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             // e.g. ~/Library/Application Support/com.cuongta.budget-app/budget.db on macOS
             let dir = app.path().app_config_dir()?;

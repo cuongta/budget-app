@@ -87,23 +87,54 @@ jobs:
       - name: Build release binary
         id: build-release
         if: success()
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: yarn tauri build
 
       - name: Save artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.os }} # stores asset inside folder matrix.os (ie. "macos-latest")
-          path: src-tauri/target/release/bundle/dmg/*
+          path: |
+            src-tauri/target/release/bundle/dmg/*.dmg
+            src-tauri/target/release/bundle/macos/*.tar.gz
+            src-tauri/target/release/bundle/macos/*.tar.gz.sig
           retention-days: 1 # only the release job needs it; the Release keeps its own copy
 
   release:
-    if: ${{ success() }}
+    # only pushes to master publish; PRs just build and test
+    if: ${{ success() && github.event_name == 'push' }}
     needs: [version, build]
     runs-on: [ubuntu-latest]
 
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
+
+      # What the installed app's updater reads (endpoint in tauri.conf.json):
+      # the newest version, where to download it, and its signature.
+      - name: Write latest.json
+        env:
+          TAG: ${{ needs.version.outputs.version }} # e.g. v0.1.7
+          REPO: ${{ github.repository }} # cuongta/budget-app
+        run: |
+          # Read first: under `bash -e` a missing .sig fails here instead of
+          # writing an empty signature.
+          SIGNATURE=$(cat macos-latest/macos/budget-app.app.tar.gz.sig)
+          jq -n \
+            --arg version "${TAG#v}" \
+            --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg signature "$SIGNATURE" \
+            --arg url "https://github.com/$REPO/releases/download/$TAG/budget-app.app.tar.gz" \
+            '{
+              version: $version,
+              pub_date: $pub_date,
+              platforms: {
+                "darwin-aarch64": { signature: $signature, url: $url }
+              }
+            }' > latest.json
+          cat latest.json
 
       - name: Create Github Release and Upload Assets to Github
         id: create_gh_release
@@ -115,4 +146,8 @@ jobs:
           name: ${{ needs.version.outputs.version }}
           body: |
             Released ${{ needs.version.outputs.version }}
-          files: macos-latest/*.dmg
+          fail_on_unmatched_files: true # a missing file fails the release instead of a warning
+          files: |
+            macos-latest/dmg/*.dmg
+            macos-latest/macos/budget-app.app.tar.gz
+            latest.json

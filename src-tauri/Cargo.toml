@@ -29,3 +29,5 @@ csv = "1"
 sqlx = { version = "0.8", default-features = false, features = ["macros", "migrate", "runtime-tokio", "sqlite"] }
 async-openai = "0.42.2"
 tauri-plugin-dialog = "2"
+tauri-plugin-updater = "2.14.0"
+tauri-plugin-process = "2.4.0"

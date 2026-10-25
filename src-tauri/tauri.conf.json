@@ -22,6 +22,7 @@
     }
   },
   "bundle": {
+    "createUpdaterArtifacts": true,
     "active": true,
     "targets": "all",
     "icon": [
@@ -31,5 +32,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU3MDZGQzYyNzI2RUM2Q0IKUldUTHhtNXlZdndHNTB3UjB3ejRpK09DcHd0dmk3UDVhd2F5cjFZWXdQd2EvUjJxZWtVRjQwYTMK",
+      "endpoints": [
+        "https://github.com/cuongta/budget-app/releases/latest/download/latest.json"
+      ]
+    }
   }
 }
