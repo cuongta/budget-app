@@ -95,7 +95,80 @@
   margin: 0 0 1rem;
   padding: 0.5rem 0.75rem;
   border: 1px solid color-mix(in oklab, var(--color-accent) 30%, var(--color-border));
-  border-radius: var(--radius-sm);
-  background-color: color-mix(in oklab, var(--color-accent) 8%, var(--color-surface));
+  border-radius: var(--radius-lg);
+  background-color: color-mix(in oklab, var(--color-accent) 8%, var(--color-bg));
   font-size: var(--text-sm);
+}
+
+/* Heat cells shade toward the card color. */
+.home__table {
+  --color-surface: var(--color-bg);
+}
+
+/* --- Headline numbers ------------------------------------------------------ */
+
+.home__kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 1rem;
+  margin: 1rem 0 0;
+}
+
+.home__kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding: 1rem 1.25rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background-color: var(--color-bg);
+  box-shadow: var(--shadow-card);
+}
+
+.home__kpi dd {
+  margin: 0;
+}
+
+.home__kpi-label {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+
+/* Big standalone numbers keep proportional figures (tabular looks loose here). */
+.home__kpi-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.home__kpi-note {
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+}
+
+.home__kpi .home__kpi-trend {
+  margin-top: auto;
+  padding-top: 0.5rem;
+}
+
+.home__spark {
+  display: block;
+  width: 100%;
+  height: 28px;
+  overflow: visible;
+}
+
+.home__spark polyline {
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.home__spark-zero {
+  stroke: var(--color-border);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
 }

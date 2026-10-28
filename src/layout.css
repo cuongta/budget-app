@@ -14,6 +14,7 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  background-color: var(--color-canvas); /* behind the page's cards */
 }
 
 /* Replaces the hidden macOS title bar; the traffic lights sit on its left edge. */

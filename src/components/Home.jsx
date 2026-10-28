@@ -56,6 +56,7 @@ export const Home = () => {
       title="Overview"
       actions={
         <button
+          className="button--primary"
           onClick={() => importStatement.mutate()}
           disabled={importStatement.isPending}
         >
@@ -171,6 +172,8 @@ const MonthlyTables = ({ rows }) => {
 
   return (
     <>
+      <KpiTiles months={months} earned={earned} spent={spent} period={period} />
+
       <PieGrid>
         <section className="page__section">
           <h2 className="page__section-title">Where the money went</h2>
@@ -265,6 +268,89 @@ const MonthlyTables = ({ rows }) => {
         </p>
       </section>
     </>
+  );
+};
+
+const percent = new Intl.NumberFormat("en-US", {
+  style: "percent",
+  maximumFractionDigits: 0,
+});
+
+/**
+ * Headline numbers for the shown months, each with its month-by-month trend.
+ * Totals match the Total column of the Monthly summary table below.
+ */
+const KpiTiles = ({ months, earned, spent, period }) => {
+  const income = sumMonths(months, earned);
+  const spending = sumMonths(months, spent);
+  const net = income - spending;
+  const sign = Math.sign(Math.round(net));
+  const perMonth = (v) => `${dollars.format(v / months.length)} / month`;
+  return (
+    <dl className="home__kpis" aria-label={`Totals, ${period}`}>
+      <Kpi
+        label="Income"
+        value={dollars.format(income)}
+        note={perMonth(income)}
+        trend={months.map(earned)}
+        color="var(--color-income)"
+      />
+      <Kpi
+        label="Spending"
+        value={dollars.format(spending)}
+        note={perMonth(spending)}
+        trend={months.map(spent)}
+        color="var(--color-spending)"
+      />
+      <Kpi
+        label="Net"
+        value={`${sign > 0 ? "+" : ""}${dollars.format(net)}`}
+        valueClass={sign > 0 ? "home__positive" : sign < 0 ? "home__negative" : undefined}
+        note={sign > 0 ? "earned more than spent" : sign < 0 ? "spent more than earned" : "broke even"}
+        trend={months.map((m) => earned(m) - spent(m))}
+        color="var(--color-muted)"
+      />
+      <Kpi
+        label="Savings rate"
+        value={income > 0 ? percent.format(net / income) : "–"}
+        valueClass={sign < 0 ? "home__negative" : undefined}
+        note="of income kept"
+      />
+    </dl>
+  );
+};
+
+const Kpi = ({ label, value, valueClass, note, trend, color }) => (
+  <div className="home__kpi">
+    <dt className="home__kpi-label">{label}</dt>
+    <dd className={`home__kpi-value${valueClass ? ` ${valueClass}` : ""}`}>{value}</dd>
+    <dd className="home__kpi-note">{note}</dd>
+    {trend && trend.length > 1 && (
+      <dd className="home__kpi-trend" aria-hidden="true">
+        <Sparkline values={trend} color={color} />
+      </dd>
+    )}
+  </div>
+);
+
+/**
+ * Trend line across the tile, oldest month on the left. Decorative: the exact
+ * numbers are in the Monthly summary table. A hairline marks $0 when the line
+ * crosses it (e.g. net going negative).
+ */
+const Sparkline = ({ values, color }) => {
+  const W = 100;
+  const H = 28;
+  const min = Math.min(0, ...values);
+  const max = Math.max(0, ...values);
+  const y = (v) => (max === min ? H / 2 : H - 2 - ((v - min) / (max - min)) * (H - 4));
+  const points = values.map((v, i) => `${(i / (values.length - 1)) * W},${y(v)}`).join(" ");
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="home__spark">
+      {min < 0 && <line x1={0} x2={W} y1={y(0)} y2={y(0)} className="home__spark-zero" />}
+      <polygon points={`0,${y(0)} ${points} ${W},${y(0)}`} fill={color} opacity={0.1} />
+      <polyline points={points} fill="none" stroke={color} />
+    </svg>
   );
 };
 

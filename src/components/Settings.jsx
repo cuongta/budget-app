@@ -123,7 +123,11 @@ const Updates = () => {
       <div className="settings__row">
         <AppVersion />
         {update ? (
-          <button onClick={() => install.mutate(update)} disabled={busy}>
+          <button
+            className="button--primary"
+            onClick={() => install.mutate(update)}
+            disabled={busy}
+          >
             {install.isPending ? "Installing…" : `Install ${update.version} and restart`}
           </button>
         ) : (

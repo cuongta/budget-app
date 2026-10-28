@@ -253,7 +253,11 @@ const NewCategoryForm = ({ create }) => {
           </option>
         ))}
       </select>
-      <button type="submit" disabled={create.isPending || name.trim() === ""}>
+      <button
+        type="submit"
+        className="button--primary"
+        disabled={create.isPending || name.trim() === ""}
+      >
         {create.isPending ? "Adding…" : "Add"}
       </button>
       {create.isError && <Status error>{String(create.error)}</Status>}

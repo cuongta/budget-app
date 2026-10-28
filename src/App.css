@@ -33,6 +33,11 @@
   --color-segmented-thumb: #ffffff;
   --radius: 8px;
   --radius-sm: 6px;
+  /* Card layout (Page.css): cards in the page color on a slightly darker canvas.
+     Cards use --color-bg so chart halos and pie gaps (drawn in --color-bg) match. */
+  --color-canvas: #f5f5f7;
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+  --radius-lg: 12px;
 
   /* Type scale */
   --text-sm: 14px; /* tables, controls, hints */
@@ -67,6 +72,8 @@
     --color-negative: #ff7b72;
     --color-segmented-track: #2c2c2e;
     --color-segmented-thumb: #5a5a5e;
+    --color-canvas: #141414;
+    --shadow-card: none;
   }
 }
 
