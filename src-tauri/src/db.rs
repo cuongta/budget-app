@@ -292,6 +292,44 @@ pub async fn monthly_category_totals(pool: &SqlitePool) -> sqlx::Result<Vec<Mont
     .await
 }
 
+/// Net amount per merchant per month per category, e.g. each credit card's payments
+/// or each merchant's spending. `total` keeps the bank's sign (money out negative).
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct MonthlyMerchantTotal {
+    /// "YYYY-MM"
+    pub month: String,
+    pub merchant_id: Option<i64>,
+    /// The merchant key; "Unknown" for transactions without a merchant.
+    pub merchant: String,
+    /// NULL for uncategorized transactions.
+    pub category_id: Option<i64>,
+    pub category: String,
+    pub kind: Option<CategoryType>,
+    pub total: f64,
+}
+
+/// Every month × merchant × category that has transactions, oldest month first.
+/// Groups by the transaction's category (not the merchant's), so a per-transaction
+/// override counts where it was moved; one merchant can then appear under two categories.
+pub async fn monthly_merchant_totals(pool: &SqlitePool) -> sqlx::Result<Vec<MonthlyMerchantTotal>> {
+    sqlx::query_as(
+        "SELECT strftime('%Y-%m', t.date) AS month, \
+                m.id AS merchant_id, \
+                COALESCE(m.key, 'Unknown') AS merchant, \
+                c.id AS category_id, \
+                COALESCE(c.name, 'Uncategorized') AS category, \
+                c.type AS kind, \
+                SUM(t.amount) AS total \
+         FROM transactions t \
+         LEFT JOIN merchants m ON m.id = t.merchant_id \
+         LEFT JOIN categories c ON c.id = t.category_id \
+         GROUP BY month, m.id, c.id \
+         ORDER BY month, merchant, category",
+    )
+    .fetch_all(pool)
+    .await
+}
+
 /// A transaction with its merchant and category names, for list views.
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct TransactionView {
@@ -659,6 +697,65 @@ mod tests {
                 ("2026-09", "Income", Some(CategoryType::Income), 2500.0),
                 ("2026-10", "Groceries", Some(CategoryType::Expense), -40.0),
                 ("2026-10", "Uncategorized", None, -7.0),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn monthly_merchant_totals_group_by_month_merchant_and_category() {
+        let pool = memory_pool().await;
+        let rows = [
+            make_txn("2026-09-02", "CHASE CREDIT CRD DES:EPAY ID:1", -100.0, 1.0),
+            make_txn("2026-09-15", "CHASE CREDIT CRD DES:EPAY ID:2", -50.0, 2.0),
+            make_txn("2026-09-20", "SAFEWAY", -30.0, 3.0),
+            make_txn("2026-09-21", "SAFEWAY", -20.0, 4.0), // moved to Dining by hand
+            make_txn("2026-10-02", "CHASE CREDIT CRD DES:EPAY ID:3", -75.0, 5.0),
+            make_txn("2026-10-03", "MYSTERY SHOP", -9.0, 6.0), // never categorized
+        ];
+        insert_transactions(&pool, &rows).await.unwrap();
+        let cards = category_id(&pool, "Credit Card Payment").await;
+        let groceries = category_id(&pool, "Groceries").await;
+        let dining = category_id(&pool, "Dining").await;
+        for m in list_merchants(&pool).await.unwrap() {
+            match m.key.as_str() {
+                "SAFEWAY" => set_merchant_category(&pool, m.id, groceries).await.unwrap(),
+                "CHASE CREDIT CRD" => set_merchant_category(&pool, m.id, cards).await.unwrap(),
+                _ => 0,
+            };
+        }
+        let moved = list_transactions(&pool)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|t| t.amount == -20.0)
+            .unwrap()
+            .id;
+        set_transaction_category(&pool, moved, Some(dining))
+            .await
+            .unwrap();
+
+        let totals = monthly_merchant_totals(&pool).await.unwrap();
+        let got: Vec<(&str, &str, &str, Option<CategoryType>, f64)> = totals
+            .iter()
+            .map(|t| {
+                (
+                    t.month.as_str(),
+                    t.merchant.as_str(),
+                    t.category.as_str(),
+                    t.kind,
+                    t.total,
+                )
+            })
+            .collect();
+        let expense = Some(CategoryType::Expense);
+        assert_eq!(
+            got,
+            [
+                ("2026-09", "CHASE CREDIT CRD", "Credit Card Payment", expense, -150.0),
+                ("2026-09", "SAFEWAY", "Dining", expense, -20.0),
+                ("2026-09", "SAFEWAY", "Groceries", expense, -30.0),
+                ("2026-10", "CHASE CREDIT CRD", "Credit Card Payment", expense, -75.0),
+                ("2026-10", "MYSTERY SHOP", "Uncategorized", None, -9.0),
             ]
         );
     }

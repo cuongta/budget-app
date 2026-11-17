@@ -7,12 +7,13 @@ const dollars = new Intl.NumberFormat("en-US", {
 });
 
 const isIncome = (row) => row.kind === "Income";
+// Transfers move money between your own accounts, so they aren't paid out of income.
+const isTransfer = (row) => row.kind === "Transfer";
 
 // Node colors by category kind; uncategorized counts as spending.
 const KIND_COLORS = {
   Expense: "var(--color-spending)",
   Investment: "var(--color-investment)",
-  Transfer: "var(--color-transfer)",
 };
 
 /**
@@ -21,11 +22,11 @@ const KIND_COLORS = {
  * is added up.
  *
  * Two stages: Income on the left, flowing into every other category on the right,
- * biggest first. Income left over shows as "Unspent".
+ * biggest first. Transfers are left out. Income left over shows as "Unspent".
  * If more went out than came in, the gap is drawn as a second source,
  * "From checking balance" (cash already in the account, e.g. moved out to park in
  * investments), and each category's band is split between the two sources.
- * Categories that net to <= 0 (e.g. more transferred in than out) are left out,
+ * Categories that net to <= 0 (e.g. more refunded than spent) are left out,
  * since a band can't be negative.
  */
 export const MoneyFlow = ({ rows }) => {
@@ -33,7 +34,7 @@ export const MoneyFlow = ({ rows }) => {
 
   // category -> money out, summed over the months
   const byCategory = new Map();
-  for (const r of rows.filter((r) => !isIncome(r))) {
+  for (const r of rows.filter((r) => !isIncome(r) && !isTransfer(r))) {
     const c = byCategory.get(r.category) ?? { label: r.category, kind: r.kind, value: 0 };
     c.value -= r.total; // the bank records money out as negative
     byCategory.set(r.category, c);

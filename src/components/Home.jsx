@@ -2,7 +2,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Link } from "react-router";
 
-import { getMonthlyCategoryTotals, getUncategorizedMerchantCount, importCsv } from "../lib/db";
+import {
+  getMonthlyCategoryTotals,
+  getMonthlyMerchantTotals,
+  getUncategorizedMerchantCount,
+  importCsv,
+} from "../lib/db";
+import { MerchantPie } from "./MerchantPie";
 import { MoneyFlow } from "./MoneyFlow";
 import { PieChart, PieGrid, PieHeadline } from "./PieChart";
 import { Page, Status } from "./Page";
@@ -11,6 +17,7 @@ import "./Home.css";
 // Under ["transactions", ...] so anything that invalidates ["transactions"]
 // (imports, merchant category changes) refreshes this view too.
 const MONTHLY_KEY = ["transactions", "monthly-totals"];
+const MERCHANT_TOTALS_KEY = ["transactions", "monthly-merchant-totals"]; // shared with Monthly
 
 // The last N months with data are shown; older ones scroll off.
 const MAX_MONTHS = 12;
@@ -176,27 +183,8 @@ const MonthlyTables = ({ rows }) => {
 
       <PieGrid>
         <section className="page__section">
-          <h2 className="page__section-title">Where the money went</h2>
-          <MoneyOutPie
-            slices={[
-              {
-                label: "Spending",
-                color: "var(--color-spending)",
-                value: sumMonths(months, spent),
-              },
-              {
-                label: "To investments",
-                color: "var(--color-investment)",
-                value: sumMonths(months, movedTo("Investment")),
-              },
-              {
-                label: "Transfers (net)",
-                color: "var(--color-transfer)",
-                value: sumMonths(months, movedTo("Transfer")),
-              },
-            ]}
-            period={period}
-          />
+          <h2 className="page__section-title">Spending by merchant</h2>
+          <PeriodMerchantPie months={months} period={period} />
         </section>
 
         <section className="page__section">
@@ -358,31 +346,31 @@ const sumMonths = (months, value) =>
   months.reduce((sum, m) => sum + value(m), 0);
 
 /**
- * Part-to-whole of money out over the shown months, matching the Total column of the
- * summary table. Slices that net to zero or less (e.g. more transferred in than out)
- * are left out, since a pie can't show a negative share; a note says so.
+ * Spending (expense + uncategorized, refunds netted) per merchant over the shown
+ * months; same definition as the Spending tile and the Monthly merchant pie.
  */
-const MoneyOutPie = ({ slices, period }) => {
-  const shown = slices.filter((s) => s.value > 0);
-  const hidden = slices.filter((s) => !(s.value > 0));
-  const total = shown.reduce((sum, s) => sum + s.value, 0);
-  if (shown.length === 0) {
-    return <p className="page__hint">No money out in this period.</p>;
+const PeriodMerchantPie = ({ months, period }) => {
+  const totals = useQuery({
+    queryKey: MERCHANT_TOTALS_KEY,
+    queryFn: getMonthlyMerchantTotals,
+  });
+  if (totals.isPending) return <Status>Loading…</Status>;
+  if (totals.isError) {
+    return <Status error>Couldn't load merchants: {String(totals.error)}</Status>;
+  }
+
+  const inRange = new Set(months);
+  const spent = new Map();
+  for (const r of totals.data) {
+    if (!inRange.has(r.month) || !isSpending(r)) continue;
+    spent.set(r.merchant, (spent.get(r.merchant) ?? 0) - r.total);
   }
   return (
-    <>
-      <PieHeadline label="Money out" value={dollars.format(total)} note="in total" />
-      <PieChart slices={shown} caption={period} label="Money out" showTotal={false} />
-      {hidden.length > 0 && (
-        <p className="page__hint">
-          Not shown:{" "}
-          {hidden
-            .map((s) => `${s.label} (${dollars.format(s.value)})`)
-            .join(", ")}
-          , more came in than went out.
-        </p>
-      )}
-    </>
+    <MerchantPie
+      spent={spent}
+      caption={period}
+      empty={<p className="page__hint">No spending in this period.</p>}
+    />
   );
 };
 

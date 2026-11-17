@@ -4,8 +4,8 @@ mod db;
 
 use csv_parser::*;
 use db::{
-    Category, Merchant, MonthlyCategoryTotal, Page, ResetSummary, StoredTransaction,
-    TransactionView,
+    Category, Merchant, MonthlyCategoryTotal, MonthlyMerchantTotal, Page, ResetSummary,
+    StoredTransaction, TransactionView,
 };
 use sqlx::SqlitePool;
 use tauri::{Manager, State};
@@ -164,6 +164,15 @@ async fn get_monthly_category_totals(
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+async fn get_monthly_merchant_totals(
+    pool: State<'_, SqlitePool>,
+) -> Result<Vec<MonthlyMerchantTotal>, String> {
+    db::monthly_merchant_totals(&pool)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// `month` is "YYYY-MM".
 #[tauri::command]
 async fn get_month_transactions(
@@ -206,6 +215,7 @@ pub fn run() {
             set_merchant_category,
             set_transaction_category,
             get_monthly_category_totals,
+            get_monthly_merchant_totals,
             get_month_transactions
         ])
         .run(tauri::generate_context!())

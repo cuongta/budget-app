@@ -16,6 +16,13 @@ export function getMonthlyCategoryTotals() {
   return invoke("get_monthly_category_totals");
 }
 
+// Resolves to [{ month: "YYYY-MM", merchant_id, merchant, category_id, category, kind,
+// total }], oldest first; one row per month × merchant × (transaction) category.
+// total keeps the bank's sign (money out negative); kind is null for "Uncategorized".
+export function getMonthlyMerchantTotals() {
+  return invoke("get_monthly_merchant_totals");
+}
+
 // month is "YYYY-MM". Resolves to [{ id, date, description, amount, running_balance,
 // merchant_id, merchant, category_id, category, kind, category_overridden }], newest first.
 export function getMonthTransactions(month) {

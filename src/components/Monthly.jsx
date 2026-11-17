@@ -2,7 +2,12 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
 
-import { getMonthlyCategoryTotals, getMonthTransactions } from "../lib/db";
+import {
+  getMonthlyCategoryTotals,
+  getMonthlyMerchantTotals,
+  getMonthTransactions,
+} from "../lib/db";
+import { MerchantPie } from "./MerchantPie";
 import { MoneyFlow } from "./MoneyFlow";
 import { PieChart, PieGrid, PieHeadline } from "./PieChart";
 import { SortHeader, sortRows } from "./Sort";
@@ -13,6 +18,7 @@ import "./Monthly.css";
 // Same cache entry as Home; both live under ["transactions", ...] so imports and
 // category changes (which invalidate ["transactions"]) refresh them.
 const MONTHLY_KEY = ["transactions", "monthly-totals"];
+const MERCHANT_TOTALS_KEY = ["transactions", "monthly-merchant-totals"]; // shared with Home
 const monthKey = (month) => ["transactions", "month", month];
 
 const dollars = new Intl.NumberFormat("en-US", {
@@ -28,6 +34,7 @@ const compact = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
   notation: "compact",
+  minimumFractionDigits: 0, // "$440", not "$440.0"
   maximumFractionDigits: 1,
 });
 
@@ -105,7 +112,7 @@ export const Monthly = () => {
     >
       <Section
         title="Income, spending & investments"
-        hint="Click a month to select it. Hover for exact amounts."
+        hint="Under each month: unspent (green) or overspent (red). Click a month to select it. Hover for exact amounts."
       >
         <IncomeSpendingChart
           data={summary}
@@ -169,6 +176,15 @@ export const Monthly = () => {
           />
         )}
       </Section>
+
+      <CardPayments
+        categoryId={
+          totals.data.find((r) => r.category === CARD_CATEGORY)?.category_id
+        }
+        months={months}
+        selected={month}
+        onSelect={setSelected}
+      />
 
       <MonthTransactions month={month} current={current} />
     </Page>
@@ -377,7 +393,11 @@ const ComparisonRow = ({ label, current, previous, max, strong }) => {
   );
 };
 
-/** [{ month, income, spending, investment, net }] oldest first, from the per-category totals. */
+/**
+ * [{ month, income, spending, investment, net, unspent }] oldest first, from the
+ * per-category totals. `unspent` is income − spending − investments (negative when
+ * overspent), the same as "Unspent" in the money-flow chart and the income pie.
+ */
 const summarizeByMonth = (rows) => {
   const byMonth = new Map();
   for (const r of rows) {
@@ -398,8 +418,18 @@ const summarizeByMonth = (rows) => {
     [...byMonth.values()]
       .sort((a, b) => a.month.localeCompare(b.month))
       // Net stays income − spending (as on Home); investments move money, they don't spend it.
-      .map((s) => ({ ...s, net: s.income - s.spending }))
+      .map((s) => ({
+        ...s,
+        net: s.income - s.spending,
+        unspent: s.income - s.spending - s.investment,
+      }))
   );
+};
+
+/** "unspent", "overspent", or null when the month broke even (to the dollar). */
+const unspentStatus = (unspent) => {
+  const v = Math.round(unspent);
+  return v > 0 ? "unspent" : v < 0 ? "overspent" : null;
 };
 
 // ---------------------------------------------------------------------------
@@ -407,7 +437,8 @@ const summarizeByMonth = (rows) => {
 // Click (or Enter/Space on) a month to show its transactions below.
 
 const CHART_HEIGHT = 220;
-const MARGIN = { top: 20, right: 8, bottom: 24, left: 52 };
+// Bottom margin fits the month label plus the unspent/overspent amount under it.
+const MARGIN = { top: 20, right: 8, bottom: 38, left: 52 };
 const BAR_MAX = 24; // px, bars never fill their slot
 const BAR_GAP = 2; // px surface gap between a month's bars
 const RADIUS = 4; // rounded data-end, square at the baseline
@@ -486,6 +517,7 @@ const IncomeSpendingChart = ({ data, selected, onSelect }) => {
             const x0 = MARGIN.left + i * band;
             const groupX = x0 + (band - groupW) / 2;
             const isSelected = d.month === selected;
+            const status = unspentStatus(d.unspent);
             return (
               <g key={d.month}>
                 {isSelected && (
@@ -515,11 +547,21 @@ const IncomeSpendingChart = ({ data, selected, onSelect }) => {
                 <text
                   className={`monthly__axis${isSelected ? " monthly__axis--selected" : ""}`}
                   x={x0 + band / 2}
-                  y={CHART_HEIGHT - 6}
+                  y={y(0) + 16}
                   textAnchor="middle"
                 >
                   {formatMonth(d.month, "short")}
                 </text>
+                {status && (
+                  <text
+                    className={`monthly__axis monthly__status--${status}`}
+                    x={x0 + band / 2}
+                    y={y(0) + 31}
+                    textAnchor="middle"
+                  >
+                    {formatSigned(d.unspent, compact)}
+                  </text>
+                )}
                 {/* Whole month band is the hit target: bigger than the bars. */}
                 <rect
                   className="monthly__hit"
@@ -530,7 +572,7 @@ const IncomeSpendingChart = ({ data, selected, onSelect }) => {
                   tabIndex={0}
                   role="button"
                   aria-pressed={isSelected}
-                  aria-label={`${formatMonth(d.month, "long")}: ${SERIES.map((s) => `${s.label.toLowerCase()} ${dollars.format(d[s.key])}`).join(", ")}`}
+                  aria-label={`${formatMonth(d.month, "long")}: ${SERIES.map((s) => `${s.label.toLowerCase()} ${dollars.format(d[s.key])}`).join(", ")}${status ? `, ${status} ${dollars.format(Math.abs(d.unspent))}` : ""}`}
                   onPointerEnter={() => setHovered(d.month)}
                   onPointerLeave={() => setHovered(null)}
                   onFocus={() => setHovered(d.month)}
@@ -576,6 +618,338 @@ const IncomeSpendingChart = ({ data, selected, onSelect }) => {
               {formatSigned(tip.net, cents)}
             </strong>
             <span>Net</span>
+          </div>
+          {unspentStatus(tip.unspent) && (
+            <div className="monthly__tooltip-row">
+              <span className="monthly__tooltip-key monthly__tooltip-key--none" />
+              <strong className={signClass(tip.unspent)}>
+                {cents.format(Math.abs(tip.unspent))}
+              </strong>
+              <span>
+                {unspentStatus(tip.unspent) === "unspent" ? "Unspent" : "Overspent"}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Chart: credit card payments per month, one stacked bar per month split by card.
+// The checking account only sees the payments to each card (category
+// "Credit Card Payment"), not the purchases on it, so this is the cards' cost
+// to the budget month by month.
+
+const CARD_CATEGORY = "Credit Card Payment";
+// Fixed by each card's total over all months (biggest first), so a card keeps its
+// color whichever month is selected. More cards than colors fold into "Other".
+const CARD_COLORS = [
+  "var(--color-pie-1)",
+  "var(--color-pie-2)",
+  "var(--color-pie-3)",
+  "var(--color-pie-4)",
+];
+const OTHER_CARDS = "__other__";
+const CARD_MARGIN = { top: 20, right: 8, bottom: 24, left: 52 };
+const SEGMENT_GAP = 2; // px surface gap between stacked segments
+
+/** "ONLINE BANKING PAYMENT TO CRD 5365" -> "Card ••5365"; "CHASE CREDIT CRD" -> "Chase Credit Card". */
+const cardLabel = (merchant) => {
+  const last4 = merchant.match(/\bCRD (\d{4})$/);
+  if (last4) return `Card ••${last4[1]}`;
+  return merchant
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .replace(/\bCrd\b/, "Card");
+};
+
+/**
+ * Per-merchant monthly totals -> { series: [{ key, label, color, total }],
+ * byMonth: Map(month -> { [key]: paid }) }. Paid amounts are positive.
+ */
+const buildCardSeries = (rows) => {
+  const paid = new Map();
+  for (const r of rows) paid.set(r.merchant, (paid.get(r.merchant) ?? 0) - r.total);
+  const ranked = [...paid]
+    .filter(([, v]) => v > 0)
+    .sort((a, b) => b[1] - a[1]);
+  // Keep the last color for "Other" when there are more cards than colors.
+  const top =
+    ranked.length > CARD_COLORS.length
+      ? ranked.slice(0, CARD_COLORS.length - 1)
+      : ranked;
+  const topKeys = new Set(top.map(([m]) => m));
+  const series = top.map(([m, total], i) => ({
+    key: m,
+    label: cardLabel(m),
+    color: CARD_COLORS[i],
+    total,
+  }));
+  const rest = ranked.slice(top.length);
+  if (rest.length > 0) {
+    series.push({
+      key: OTHER_CARDS,
+      label: `Other (${rest.length} cards)`,
+      color: "var(--color-pie-other)",
+      total: rest.reduce((s, [, v]) => s + v, 0),
+    });
+  }
+
+  const byMonth = new Map();
+  for (const r of rows) {
+    if (!paid.has(r.merchant) || !(paid.get(r.merchant) > 0)) continue;
+    const key = topKeys.has(r.merchant) ? r.merchant : OTHER_CARDS;
+    const m = byMonth.get(r.month) ?? {};
+    m[key] = (m[key] ?? 0) - r.total;
+    byMonth.set(r.month, m);
+  }
+  return { series, byMonth };
+};
+
+const CardPayments = ({ categoryId, months, selected, onSelect }) => {
+  const totals = useQuery({
+    queryKey: MERCHANT_TOTALS_KEY,
+    queryFn: getMonthlyMerchantTotals,
+    enabled: categoryId != null,
+  });
+  const rows = totals.data?.filter((r) => r.category_id === categoryId) ?? [];
+
+  const section = (body) => (
+    <Section
+      title="Credit card payments"
+      hint="Paid to each card from checking, by month. Click a month to select it. Hover for each card's amount."
+    >
+      {body}
+    </Section>
+  );
+
+  if (categoryId == null || (totals.isSuccess && rows.length === 0)) {
+    return section(
+      <Status>
+        No credit card payments yet. Put your card payments in the “{CARD_CATEGORY}”
+        category on <Link to="/merchants">Merchants</Link>.
+      </Status>,
+    );
+  }
+  if (totals.isPending) return section(<Status>Loading…</Status>);
+  if (totals.isError) {
+    return section(
+      <Status error>Couldn't load card payments: {String(totals.error)}</Status>,
+    );
+  }
+
+  const { series, byMonth } = buildCardSeries(rows);
+  const data = months.map((month) => {
+    const m = byMonth.get(month) ?? {};
+    // A month where a card got more back than was paid can't be a negative segment.
+    const values = series.map((s) => Math.max(0, m[s.key] ?? 0));
+    return { month, values, total: values.reduce((a, b) => a + b, 0) };
+  });
+  const current = data.find((d) => d.month === selected);
+  const paidMonths = data.filter((d) => d.total > 0);
+  const average =
+    paidMonths.length > 0
+      ? paidMonths.reduce((s, d) => s + d.total, 0) / paidMonths.length
+      : 0;
+
+  return section(
+    <>
+      <CardPaymentsChart
+        series={series}
+        data={data}
+        selected={selected}
+        onSelect={onSelect}
+      />
+      <dl className="monthly__totals" aria-label={`Card payments for ${formatMonth(selected, "long")}`}>
+        <div>
+          <dt>{formatMonth(selected, "long")}</dt>
+        </div>
+        <div>
+          <dt>Paid</dt>
+          <dd>{dollars.format(current?.total ?? 0)}</dd>
+        </div>
+        <div>
+          <dt>Monthly average</dt>
+          <dd>{dollars.format(average)}</dd>
+        </div>
+      </dl>
+    </>,
+  );
+};
+
+const CardPaymentsChart = ({ series, data, selected, onSelect }) => {
+  const [ref, width] = useWidth();
+  const [hovered, setHovered] = useState(null);
+
+  const innerW = Math.max(0, width - CARD_MARGIN.left - CARD_MARGIN.right);
+  const innerH = CHART_HEIGHT - CARD_MARGIN.top - CARD_MARGIN.bottom;
+  const { max, ticks } = niceScale(Math.max(...data.map((d) => d.total)));
+  const y = (v) => CARD_MARGIN.top + innerH - (Math.max(0, v) / max) * innerH;
+  const band = data.length > 0 ? innerW / data.length : 0;
+  const barW = Math.max(2, Math.min(BAR_MAX * 1.5, band * 0.55));
+
+  const tip = hovered && data.find((d) => d.month === hovered);
+  const tipIndex = tip ? data.indexOf(tip) : -1;
+
+  return (
+    <div className="monthly__chart" ref={ref}>
+      <ul className="monthly__legend">
+        {series.map((s) => (
+          <li key={s.key}>
+            <span className="monthly__swatch" style={{ background: s.color }} />
+            {s.label}
+            <span className="monthly__legend-amount">{compact.format(s.total)}</span>
+          </li>
+        ))}
+      </ul>
+
+      {width > 0 && (
+        <svg
+          width={width}
+          height={CHART_HEIGHT}
+          role="img"
+          aria-label="Credit card payments by month, stacked by card"
+        >
+          {ticks.map((t) => (
+            <g key={t}>
+              <line
+                className={t === 0 ? "monthly__baseline" : "monthly__grid"}
+                x1={CARD_MARGIN.left}
+                x2={width - CARD_MARGIN.right}
+                y1={y(t)}
+                y2={y(t)}
+              />
+              <text
+                className="monthly__axis"
+                x={CARD_MARGIN.left - 8}
+                y={y(t)}
+                dy="0.32em"
+                textAnchor="end"
+              >
+                {compact.format(t)}
+              </text>
+            </g>
+          ))}
+
+          {data.map((d, i) => {
+            const x0 = CARD_MARGIN.left + i * band;
+            const bx = x0 + (band - barW) / 2;
+            const isSelected = d.month === selected;
+            const topIndex = d.values.findLastIndex((v) => v > 0);
+            let below = 0;
+            return (
+              <g key={d.month}>
+                {isSelected && (
+                  <rect
+                    className="monthly__band--selected"
+                    x={x0 + 1}
+                    y={CARD_MARGIN.top - 16}
+                    width={band - 2}
+                    height={innerH + 16}
+                    rx={RADIUS}
+                  />
+                )}
+                {d.values.map((v, j) => {
+                  if (!(v > 0)) return null;
+                  const bottom = y(below) - (below > 0 ? SEGMENT_GAP : 0);
+                  below += v;
+                  const top = y(below);
+                  if (bottom - top < 0.5) return null; // too thin to draw after the gap
+                  return j === topIndex ? (
+                    <path
+                      key={series[j].key}
+                      d={barPath(bx, top, barW, bottom)}
+                      fill={series[j].color}
+                    />
+                  ) : (
+                    <rect
+                      key={series[j].key}
+                      x={bx}
+                      y={top}
+                      width={barW}
+                      height={bottom - top}
+                      fill={series[j].color}
+                    />
+                  );
+                })}
+                {/* Only the selected month gets a value label; the rest are in the tooltip. */}
+                {isSelected && d.total > 0 && (
+                  <text
+                    className="monthly__bar-label"
+                    x={x0 + band / 2}
+                    y={y(d.total) - 6}
+                    textAnchor="middle"
+                  >
+                    {compact.format(d.total)}
+                  </text>
+                )}
+                <text
+                  className={`monthly__axis${isSelected ? " monthly__axis--selected" : ""}`}
+                  x={x0 + band / 2}
+                  y={CHART_HEIGHT - 6}
+                  textAnchor="middle"
+                >
+                  {formatMonth(d.month, "short")}
+                </text>
+                <rect
+                  className="monthly__hit"
+                  x={x0}
+                  y={CARD_MARGIN.top - 16}
+                  width={band}
+                  height={innerH + 16 + CARD_MARGIN.bottom}
+                  tabIndex={0}
+                  role="button"
+                  aria-pressed={isSelected}
+                  aria-label={`${formatMonth(d.month, "long")}: ${dollars.format(d.total)} paid to cards${series
+                    .map((s, j) => (d.values[j] > 0 ? `, ${s.label} ${dollars.format(d.values[j])}` : ""))
+                    .join("")}`}
+                  onPointerEnter={() => setHovered(d.month)}
+                  onPointerLeave={() => setHovered(null)}
+                  onFocus={() => setHovered(d.month)}
+                  onBlur={() => setHovered(null)}
+                  onClick={() => onSelect(d.month)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onSelect(d.month);
+                    }
+                  }}
+                />
+              </g>
+            );
+          })}
+        </svg>
+      )}
+
+      {tip && (
+        <div
+          className="monthly__tooltip"
+          style={{
+            left: Math.min(CARD_MARGIN.left + (tipIndex + 0.5) * band, width - 90),
+            top: CARD_MARGIN.top + 24,
+          }}
+        >
+          <div className="monthly__tooltip-title">
+            {formatMonth(tip.month, "long")}
+          </div>
+          {series.map((s, j) =>
+            tip.values[j] > 0 ? (
+              <div key={s.key} className="monthly__tooltip-row">
+                <span
+                  className="monthly__tooltip-key"
+                  style={{ background: s.color }}
+                />
+                <strong>{cents.format(tip.values[j])}</strong>
+                <span>{s.label}</span>
+              </div>
+            ) : null,
+          )}
+          <div className="monthly__tooltip-row">
+            <span className="monthly__tooltip-key monthly__tooltip-key--none" />
+            <strong>{cents.format(tip.total)}</strong>
+            <span>Total</span>
           </div>
         </div>
       )}
@@ -654,7 +1028,7 @@ const MonthTransactions = ({ month, current }) => {
           <IncomePie {...current} />
         </Section>
         <Section title="Spending by merchant">
-          <MerchantPie transactions={transactions.data} month={month} />
+          <MonthMerchantPie transactions={transactions.data} month={month} />
         </Section>
       </PieGrid>
 
@@ -750,8 +1124,9 @@ const SORT_COLUMNS = {
 const newestFirst = (a, b) => b.date.localeCompare(a.date) || b.id - a.id;
 
 /**
- * The month's income split into Spending, Investments and what was Left over
- * (income − spending − investments), so the slices add up to the income. In a month
+ * The month's income split into Spending, Investments and what was Unspent
+ * (income − spending − investments, same as "Unspent" in the money-flow chart),
+ * so the slices add up to the income. In a month
  * where spending and investments exceed income there's nothing left to slice, so the
  * pie shows the money that went out instead and the headline says by how much.
  */
@@ -768,7 +1143,7 @@ const IncomePie = ({ month, income, spending, investment }) => {
     ...(overspent
       ? []
       : [
-          { label: "Left over", color: "var(--color-income)", value: leftOver },
+          { label: "Unspent", color: "var(--color-income)", value: leftOver },
         ]),
   ].filter((s) => s.value > 0);
 
@@ -783,7 +1158,7 @@ const IncomePie = ({ month, income, spending, investment }) => {
         />
       ) : (
         <PieHeadline
-          label="Left over"
+          label="Unspent"
           value={dollars.format(leftOver)}
           valueClass={
             Math.round(leftOver) > 0 ? "monthly__positive" : undefined
@@ -809,59 +1184,20 @@ const IncomePie = ({ month, income, spending, investment }) => {
   );
 };
 
-// Pie colors in fixed order (biggest merchant first), validated for colorblind
-// separation between neighboring slices; "Other" is a neutral gray.
-const PIE_COLORS = [1, 2, 3, 4, 5].map((n) => `var(--color-pie-${n})`);
-const PIE_TOP = PIE_COLORS.length;
-
-/**
- * The month's spending (expense + uncategorized, refunds netted) per merchant:
- * the top 5 as slices, the rest folded into "Other".
- */
-const MerchantPie = ({ transactions, month }) => {
-  const byMerchant = new Map();
+/** The month's spending (expense + uncategorized, refunds netted) per merchant. */
+const MonthMerchantPie = ({ transactions, month }) => {
+  const spent = new Map();
   for (const t of transactions) {
     if (!isSpending(t.kind)) continue;
     const name = t.merchant ?? t.description;
-    byMerchant.set(name, (byMerchant.get(name) ?? 0) - t.amount);
+    spent.set(name, (spent.get(name) ?? 0) - t.amount);
   }
-  const ranked = [...byMerchant]
-    .filter(([, value]) => value > 0)
-    .sort((a, b) => b[1] - a[1]);
-  if (ranked.length === 0) {
-    return <Status>No spending this month.</Status>;
-  }
-
-  // Folding a single leftover merchant into "Other" would just hide its name.
-  const top = ranked.length === PIE_TOP + 1 ? ranked : ranked.slice(0, PIE_TOP);
-  const rest = ranked.slice(top.length);
-  const slices = top.map(([label, value], i) => ({
-    label,
-    value,
-    color: PIE_COLORS[i] ?? "var(--color-pie-other)",
-  }));
-  if (rest.length > 0) {
-    slices.push({
-      label: `Other (${rest.length} merchants)`,
-      value: rest.reduce((sum, [, value]) => sum + value, 0),
-      color: "var(--color-pie-other)",
-    });
-  }
-  const total = ranked.reduce((sum, [, value]) => sum + value, 0);
   return (
-    <>
-      <PieHeadline
-        label="Spending"
-        value={dollars.format(total)}
-        note={`across ${ranked.length} merchant${ranked.length === 1 ? "" : "s"}`}
-      />
-      <PieChart
-        slices={slices}
-        caption={formatMonth(month, "long")}
-        label="Spending by merchant"
-        showTotal={false}
-      />
-    </>
+    <MerchantPie
+      spent={spent}
+      caption={formatMonth(month, "long")}
+      empty={<Status>No spending this month.</Status>}
+    />
   );
 };
 

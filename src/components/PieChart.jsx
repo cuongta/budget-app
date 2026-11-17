@@ -66,7 +66,7 @@ export const PieChart = ({ slices, caption, label, showTotal = true }) => {
         <tbody>
           {arcs.map((a) => (
             <tr key={a.label} className={hovered === a.label ? "pie__row--active" : undefined}>
-              <th scope="row">
+              <th scope="row" title={a.label}>
                 <span className="pie__swatch" style={{ background: a.color }} />
                 {a.label}
               </th>
