@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Link } from "react-router";
@@ -19,8 +20,10 @@ import "./Home.css";
 const MONTHLY_KEY = ["transactions", "monthly-totals"];
 const MERCHANT_TOTALS_KEY = ["transactions", "monthly-merchant-totals"]; // shared with Monthly
 
-// The last N months with data are shown; older ones scroll off.
+// The last N months with data are shown; older ones scroll off. The period
+// picker can instead show one calendar year (every month of it that has data)
 const MAX_MONTHS = 12;
+const LAST_MONTHS = "last";
 
 // Strongest cell color (% of the shading hue). Capped so the normal text color
 // stays readable (>= 4.5:1) on every cell in light and dark mode.
@@ -58,17 +61,34 @@ export const Home = () => {
     queryFn: getUncategorizedMerchantCount,
   });
 
+  // LAST_MONTHS or a year ("2026"). Falls back to LAST_MONTHS if that year's data is gone (e.g. after a reset)
+  const [range, setRange] = useState(LAST_MONTHS);
+  const years = [...new Set((totals.data ?? []).map((r) => r.month.slice(0, 4)))].sort().reverse();
+  const period = years.includes(range) ? range : LAST_MONTHS;
+
   return (
     <Page
       title="Overview"
       actions={
-        <button
-          className="button--primary"
-          onClick={() => importStatement.mutate()}
-          disabled={importStatement.isPending}
-        >
-          {importStatement.isPending ? "Importing…" : "Import statements…"}
-        </button>
+        <>
+          {years.length > 0 && (
+            <select value={period} onChange={(e) => setRange(e.target.value)} aria-label="Period">
+              <option value={LAST_MONTHS}>Last {MAX_MONTHS} months</option>
+              {years.map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
+            </select>
+          )}
+          <button
+            className="button--primary"
+            onClick={() => importStatement.mutate()}
+            disabled={importStatement.isPending}
+          >
+            {importStatement.isPending ? "Importing…" : "Import statements…"}
+          </button>
+        </>
       }
     >
       <ImportResult mutation={importStatement} />
@@ -81,7 +101,7 @@ export const Home = () => {
       ) : totals.data.length === 0 ? (
         <Status>No transactions yet. Use "Import statements…" to add your bank CSV exports.</Status>
       ) : (
-        <MonthlyTables rows={totals.data} />
+        <MonthlyTables rows={totals.data} range={period} />
       )}
     </Page>
   );
@@ -110,7 +130,10 @@ const importStatements = async () => {
       result.inserted += inserted;
       result.total += total;
     } catch (error) {
-      result.failures.push({ file: path.split("/").pop(), error: String(error) });
+      result.failures.push({
+        file: path.split("/").pop(),
+        error: String(error),
+      });
     }
   }
   return result;
@@ -149,9 +172,8 @@ const UncategorizedNotice = ({ count }) => {
   return (
     <p className="home__notice">
       {count} merchant{count === 1 ? " isn't" : "s aren't"} categorized yet. Until{" "}
-      {count === 1 ? "it is" : "they are"}, {count === 1 ? "its" : "their"} transactions
-      count as spending, so these totals may be off.{" "}
-      <Link to="/merchants">Categorize merchants</Link>
+      {count === 1 ? "it is" : "they are"}, {count === 1 ? "its" : "their"} transactions count as
+      spending, so these totals may be off. <Link to="/merchants">Categorize merchants</Link>
     </p>
   );
 };
@@ -160,12 +182,13 @@ const UncategorizedNotice = ({ count }) => {
 const isSpending = (row) => row.kind === "Expense" || row.kind === null;
 const isIncome = (row) => row.kind === "Income";
 
-const MonthlyTables = ({ rows }) => {
-  const months = [...new Set(rows.map((r) => r.month))]
-    .sort()
-    .slice(-MAX_MONTHS);
+const MonthlyTables = ({ rows, range }) => {
+  const allMonths = [...new Set(rows.map((r) => r.month))].sort();
+  const months =
+    range === LAST_MONTHS
+      ? allMonths.slice(-MAX_MONTHS)
+      : allMonths.filter((m) => m.startsWith(`${range}-`));
   const inRange = rows.filter((r) => months.includes(r.month));
-
   const monthTotal = (month, predicate, sign) =>
     inRange
       .filter((r) => r.month === month && predicate(r))
@@ -241,18 +264,13 @@ const MonthlyTables = ({ rows }) => {
                 value={movedTo("Investment")}
                 muted
               />
-              <SummaryRow
-                label="Transfers"
-                months={months}
-                value={movedTo("Transfer")}
-                muted
-              />
+              <SummaryRow label="Transfers" months={months} value={movedTo("Transfer")} muted />
             </tbody>
           </table>
         </div>
         <p className="page__hint">
-          Investments and transfers move money between your own accounts, so
-          they're not counted as spending.
+          Investments and transfers move money between your own accounts, so they're not counted as
+          spending.
         </p>
       </section>
     </>
@@ -294,7 +312,9 @@ const KpiTiles = ({ months, earned, spent, period }) => {
         label="Net"
         value={`${sign > 0 ? "+" : ""}${dollars.format(net)}`}
         valueClass={sign > 0 ? "home__positive" : sign < 0 ? "home__negative" : undefined}
-        note={sign > 0 ? "earned more than spent" : sign < 0 ? "spent more than earned" : "broke even"}
+        note={
+          sign > 0 ? "earned more than spent" : sign < 0 ? "spent more than earned" : "broke even"
+        }
         trend={months.map((m) => earned(m) - spent(m))}
         color="var(--color-muted)"
       />
@@ -342,8 +362,7 @@ const Sparkline = ({ values, color }) => {
   );
 };
 
-const sumMonths = (months, value) =>
-  months.reduce((sum, m) => sum + value(m), 0);
+const sumMonths = (months, value) => months.reduce((sum, m) => sum + value(m), 0);
 
 /**
  * Spending (expense + uncategorized, refunds netted) per merchant over the shown
@@ -391,7 +410,9 @@ const NetPie = ({ income, spending, period }) => {
         label="Net"
         value={`${sign > 0 ? "+" : ""}${dollars.format(net)}`}
         valueClass={sign > 0 ? "home__positive" : sign < 0 ? "home__negative" : undefined}
-        note={sign > 0 ? "earned more than spent" : sign < 0 ? "spent more than earned" : "broke even"}
+        note={
+          sign > 0 ? "earned more than spent" : sign < 0 ? "spent more than earned" : "broke even"
+        }
       />
       {slices.length > 0 && (
         <PieChart slices={slices} caption={period} label="Income vs spending" showTotal={false} />
@@ -405,15 +426,7 @@ const NetPie = ({ income, spending, period }) => {
  * `sign` turns the bank's signed totals into the positive amounts shown
  * (-1 for spending, 1 for income). `colorVar` names the shading color token.
  */
-const CategoryHeatTable = ({
-  title,
-  hint,
-  rows,
-  months,
-  sign,
-  totalLabel,
-  colorVar,
-}) => {
+const CategoryHeatTable = ({ title, hint, rows, months, sign, totalLabel, colorVar }) => {
   // category -> month -> amount
   const byCategory = new Map();
   for (const r of rows) {
@@ -429,14 +442,10 @@ const CategoryHeatTable = ({
         ? -1
         : sumOf(byCategory.get(b)) - sumOf(byCategory.get(a)),
   );
-  const monthSum = (m) =>
-    categories.reduce((sum, c) => sum + (byCategory.get(c).get(m) ?? 0), 0);
+  const monthSum = (m) => categories.reduce((sum, c) => sum + (byCategory.get(c).get(m) ?? 0), 0);
 
   // Shading scale: the largest single category-month is the darkest cell.
-  const max = Math.max(
-    0,
-    ...[...byCategory.values()].flatMap((byMonth) => [...byMonth.values()]),
-  );
+  const max = Math.max(0, ...[...byCategory.values()].flatMap((byMonth) => [...byMonth.values()]));
 
   return (
     <section className="page__section" style={{ "--heat": `var(${colorVar})` }}>
@@ -475,9 +484,7 @@ const CategoryHeatTable = ({
                           label={`${category}, ${formatMonth(m)}`}
                         />
                       ))}
-                      <td className="home__num home__strong">
-                        {dollars.format(sumOf(byMonth))}
-                      </td>
+                      <td className="home__num home__strong">{dollars.format(sumOf(byMonth))}</td>
                     </tr>
                   );
                 })}
@@ -492,9 +499,7 @@ const CategoryHeatTable = ({
                       </td>
                     ))}
                     <td className="home__num home__strong">
-                      {dollars.format(
-                        months.reduce((sum, m) => sum + monthSum(m), 0),
-                      )}
+                      {dollars.format(months.reduce((sum, m) => sum + monthSum(m), 0))}
                     </td>
                   </tr>
                 </tfoot>
